@@ -1,73 +1,86 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="200" alt="Nest Logo" /></a>
-</p>
+# Durable Provider issue
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Small app to reproduce a strange behaviour I've noticed while playing around with Durable Providers in NestJS v9+
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## the issue
+If in a resolver I inject a REQUEST Scoped NON durable provider, and this is the only injected provider, then it behaves as expected so, for every request, a new instance of that provider is created.
 
-## Description
+```
+@Resolver()
+export class MyResolverResolver {
+  constructor(
+    private nonDurable: NonDurableProviderBService,
+  ) {}
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Installation
-
-```bash
-$ npm install
+  @Query((returns) => String)
+  recipe(): string {
+    return 'hello';
+  }
+}
 ```
 
-## Running the app
+As soon as I inject another provider to that same resolver, and the provider IS durable, suddenly also the other provider behaves like it was durable.
 
-```bash
-# development
-$ npm run start
+```
+@Resolver()
+export class MyResolverResolver {
+  constructor(
+    //now this one is created only once per tenant, 
+    //but instead I would like to still have it created 
+    //once per request
+    private nonDurable: NonDurableProviderBService,
+    private durable: DurableProviderAService,
+  ) {}
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+  @Query((returns) => String)
+  recipe(): string {
+    return 'hello';
+  }
+}
 ```
 
-## Test
+## how to run the app
 
-```bash
-# unit tests
-$ npm run test
+from the root of the repo run:
+`npm install`
+`npm run start:dev`
 
-# e2e tests
-$ npm run test:e2e
+Then open you browser at `http://localhost:3000/graphql`.
 
-# test coverage
-$ npm run test:cov
+In the graphql playground paste this query:
+
+```
+# Write your query or mutation here
+query {
+   recipe
+}
 ```
 
-## Support
+and also in the HTTP HEADERS add :
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```
+{
+   "x-tenant-id": "tenantB"
+}
+```
 
-## Stay in touch
+now run the query and look at the console output of the app.
 
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+On first run you will notice all the providers that have been created.
+```
+AnotherDurableProviderCService created
+DurableProviderAService created
+NonDurableProviderBService created
+```
 
-## License
+If you run this query again you should see a log in the console output for NonDurableProviderBService to be recreated as it is set as `durable:false`
+but instead no output is sent meaning that the provider has not been re-created.
 
-Nest is [MIT licensed](LICENSE).
+
+Now if you comment out the injection of the `DurableProviderAService` in `MyResolverResolver` and do the same as above, you will notice that the `NonDurableProviderBService` provider is re-created per request.
+
+
+One last observation is that if you also set  `DurableProviderAService` as non durable, then both `DurableProviderAService` and `NonDurableProviderBService` are recreated per request. 
+It seems that as soon as there is one provider that is durable, all the other providers durability settings are ignored.
+
+
