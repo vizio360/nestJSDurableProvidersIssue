@@ -3,6 +3,9 @@
 Small app to reproduce a strange behaviour I've noticed while playing around with Durable Providers in NestJS v9+
 
 ## the issue
+
+THIS HAS NOW BEEN SOLVED: You just need to make the resolver non durabel as well e.g. add this `@Injectable({ scope: Scope.REQUEST, durable: false })` in the resolver declaration.
+
 If in a resolver I inject a REQUEST Scoped NON durable provider, and this is the only injected provider, then it behaves as expected so, for every request, a new instance of that provider is created.
 
 ```
