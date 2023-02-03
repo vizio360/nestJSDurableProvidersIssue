@@ -22,8 +22,12 @@ export class AggregateByTenantContextIdStrategy implements ContextIdStrategy {
       tenants.set(tenantId, tenantSubTreeId);
     }
 
-    // If tree is not durable, return the original "contextId" object
-    return (info: HostComponentInfo) =>
-      info.isTreeDurable ? tenantSubTreeId : contextId;
+    return {
+      resolve: (info: HostComponentInfo) => {
+        const context = info.isTreeDurable ? tenantSubTreeId : contextId;
+        return context;
+      },
+      payload: request,
+    };
   }
 }
